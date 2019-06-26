@@ -32,7 +32,7 @@ def run(policy_net, policy_name, ue_arrival_rate=0.03, episode_tti=200.0):
 
         while not done:
             action = policy_net.get_action(state)
-            next_state, reward, done, all_buffer, num_all_users, num_selected_users, original_state = env.step(action)
+            next_state, reward, done, all_buffer, num_all_users, num_selected_users = env.step(action)
 
             state = next_state
             episode_reward += reward
@@ -61,7 +61,6 @@ def run(policy_net, policy_name, ue_arrival_rate=0.03, episode_tti=200.0):
                 record_number -= 1
                 print("Frame ID: {}".format(str(frame_idx)))
                 print("Current users: {}".format(str(num_selected_users)))
-                print("State: {}".format(str(original_state)))
 
                 action = action.reshape((RBG_NUM, MAX_MCS - MIN_MCS + 1))
                 mcs_list = np.argmax(action, axis=-1) + 1

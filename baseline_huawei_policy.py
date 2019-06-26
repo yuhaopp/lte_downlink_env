@@ -32,7 +32,7 @@ def run(ue_arrival_rate=0.04, episode_tti=200.0):
 
         while not done:
             action = env.get_action()
-            next_state, reward, done, all_buffer, num_all_users, num_selected_users, original_state = env.step(action)
+            next_state, reward, done, all_buffer, num_all_users, num_selected_users = env.step(action)
 
             episode_reward += reward
             frame_idx += 1

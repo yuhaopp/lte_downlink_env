@@ -278,9 +278,9 @@ class Airview(gym.Env):
         num_all_users, num_selected_users = self.get_current_users()
 
         # get original state (without scale)
-        original_state = self.get_original_state()
+        # original_state = self.get_original_state()
 
-        return next_state, reward, done, self.all_buffer, num_all_users, num_selected_users, original_state
+        return next_state, reward, done, self.all_buffer, num_all_users, num_selected_users
 
     def get_action(self):
         # reward by Huawei Policy, compare with the policy network we trained

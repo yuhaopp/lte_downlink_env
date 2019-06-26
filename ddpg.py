@@ -145,7 +145,7 @@ class PolicyNetwork(nn.Module):
 
 
 class DDPG:
-    def __init__(self, ue_arrival_rate=0.03, episode_tti=200.0, index=0):
+    def __init__(self, ue_arrival_rate=0.03, episode_tti=200.0):
         self.env = Airview(ue_arrival_rate, episode_tti)
         self.ou_noise = OUNoise(self.env.action_space)
 
@@ -183,7 +183,6 @@ class DDPG:
         self.transmit_rate_list = []
         self.num_all_users_list = []
         self.num_selected_users_list = []
-        self.index = index
 
     def ddpg_update(self,
                     batch_size,
@@ -267,4 +266,4 @@ class DDPG:
                     log.write(str(self.num_selected_users_list))
                     log.close()
 
-        torch.save(self.policy_net, 'ddpg_policy_net_{}.pth'.format(str(self.index)))
+        torch.save(self.policy_net, 'ddpg_policy_net.pth')
