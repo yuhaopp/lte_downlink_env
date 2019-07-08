@@ -34,27 +34,6 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-class NormalizedActions(gym.ActionWrapper):
-
-    def _action(self, action):
-        low_bound = self.action_space.low
-        upper_bound = self.action_space.high
-
-        action = low_bound + (action + 1.0) * 0.5 * (upper_bound - low_bound)
-        action = np.clip(action, low_bound, upper_bound)
-
-        return action
-
-    def _reverse_action(self, action):
-        low_bound = self.action_space.low
-        upper_bound = self.action_space.high
-
-        action = 2 * (action - low_bound) / (upper_bound - low_bound) - 1
-        action = np.clip(action, low_bound, upper_bound)
-
-        return action
-
-
 class OUNoise(object):
     def __init__(self, action_space, mu=0.0, theta=0.15, max_sigma=0.3, min_sigma=0.3, decay_period=100000):
         self.mu = mu
@@ -252,7 +231,7 @@ class DDPG:
                 self.transmit_rate_list.append(episode_reward / all_buffer)
                 self.num_all_users_list.append(num_all_users)
                 self.num_selected_users_list.append(num_selected_users)
-                if self.frame_idx % 20000 == 0:
+                if self.frame_idx % 200000 == 0:
                     time = str(datetime.datetime.now())
                     print('current users: {}'.format(self.num_all_users_list[self.frame_idx - 1]))
                     plot_reward('ddpg_policy_reward_{}'.format(time), self.average_reward_list, self.frame_idx)
@@ -267,3 +246,4 @@ class DDPG:
                     log.close()
 
         torch.save(self.policy_net, 'ddpg_policy_net.pth')
+        return self.average_reward_list

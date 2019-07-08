@@ -1,5 +1,6 @@
 from sac import *
 from simulator import *
+import datetime
 
 
 def plot_reward(name, reward_list, frame_idx):
@@ -42,9 +43,10 @@ def run(ue_arrival_rate=0.04, episode_tti=200.0):
             transmit_rate_list.append(episode_reward / all_buffer)
             num_all_users_list.append(num_all_users)
             num_selected_users_list.append(num_selected_users)
-            if frame_idx % 20000 == 0:
-                plot_reward('baseline_policy_result', average_reward_list, frame_idx)
-                log = open("baseline_policy_result_{}.txt".format(frame_idx), "w")
+            if frame_idx % 200000 == 0:
+                time = str(datetime.datetime.now())
+                plot_reward('baseline_policy_result_{}'.format(time), average_reward_list, frame_idx)
+                log = open("baseline_policy_result_{}_{}.txt".format(frame_idx, time), "w")
                 log.write(str(average_reward_list))
                 log.write('\n')
                 log.write(str(transmit_rate_list))
@@ -53,3 +55,4 @@ def run(ue_arrival_rate=0.04, episode_tti=200.0):
                 log.write('\n')
                 log.write(str(num_selected_users_list))
                 log.close()
+    return average_reward_list

@@ -43,10 +43,10 @@ def run(policy_net, policy_name, ue_arrival_rate=0.03, episode_tti=200.0):
             transmit_rate_list.append(episode_reward / all_buffer)
             num_all_users_list.append(num_all_users)
             num_selected_users_list.append(num_selected_users)
-            if frame_idx % 20000 == 0:
+            if frame_idx % 200000 == 0:
                 time = str(datetime.datetime.now())
-                plot_reward('test_{}_policy_reward'.format(policy_name), average_reward_list, frame_idx)
-                log = open("test_{}_policy_result_{}.txt".format(policy_name, frame_idx), "w")
+                plot_reward('test_{}_policy_reward_{}'.format(policy_name, time), average_reward_list, frame_idx)
+                log = open("test_{}_policy_result_{}_{}.txt".format(policy_name, frame_idx,time), "w")
                 log.write(str(average_reward_list))
                 log.write('\n')
                 log.write(str(transmit_rate_list))
@@ -67,3 +67,4 @@ def run(policy_net, policy_name, ue_arrival_rate=0.03, episode_tti=200.0):
                 print("MCS: {}".format(str(mcs_list)))
 
                 print("Reward: {}".format(str(reward)))
+    return average_reward_list

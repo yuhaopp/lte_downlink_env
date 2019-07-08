@@ -12,7 +12,7 @@ Configuration:
 BANDWIDTH = 1e7
 RBG_NUM = 17
 TTI = 0.001
-UE_ARRIVAL_RATE = 0.05
+UE_ARRIVAL_RATE = 0.03
 PACKET_SIZE = (int(1e3), int(1e6))
 CQI_REPORT_INTERVAL = 0.02
 PRIOR_THRESHOLD = 1e4
@@ -21,12 +21,14 @@ MAX_CQI = 29
 MIN_MCS = 1
 MAX_MCS = 29
 EPISODE_TTI = 10.0
+FREQUENCY = 2e9
+LIGHT_SPEED = 3e8
 
 
 class User:
     var = {
         'num': ['buffer', 'rsrp', 'avg_snr', 'avg_thp'],
-        'vec': ['cqi', 'se', 'ptior', 'sched_rbg']
+        'vec': ['cqi', 'se', 'prior', 'sched_rbg']
     }
     attr_range = {
         'buffer': (int(1e3), int(1e6)),
@@ -54,6 +56,12 @@ class User:
         self.sched_rbg = np.zeros(RBG_NUM)
         self.tbs_list = []
         self.is_virtual = is_virtual
+        self.olla_enable = False
+        self.olla_value = 0.0
+        self.olla_step = 0.01
+        self.speed = 3
+        self.coherence_time = LIGHT_SPEED / (2.0 * self.speed * FREQUENCY)
+        self.cqi_update_time = None
 
     def reset_rbg(self):
         self.sched_rbg.fill(0)
@@ -81,7 +89,7 @@ prior: the user's prior in this RBG
 
 class Airview(gym.Env):
     user_var = {
-        'num': ['buffer', 'rsrp', 'avg_thp', 'cqi'],
+        'num': ['avg_snr'],
         'vec': []
     }
 
@@ -143,9 +151,10 @@ class Airview(gym.Env):
             user = self.user_list[i]
             live_time = self.sim_time - user.arr_time
             if live_time % self.cqi_report_interval == 0.0:
+                '''random implies error in channel measurement'''
                 user.cqi = user.avg_snr + np.random.randint(-2, 2, size=RBG_NUM)
                 user.cqi = np.clip(user.cqi, *user.attr_range['cqi'])
-
+                user.cqi_update_time = self.sim_time
                 # if user is virtual, then cqi is set to 0.
                 if user.is_virtual:
                     user.cqi = np.zeros(RBG_NUM)
@@ -179,7 +188,7 @@ class Airview(gym.Env):
     def get_state(self):
         for i in range(len(self.select_user_list)):
             select_user = self.select_user_list[i]
-            self.state[i] = [select_user.rsrp, select_user.buffer, select_user.avg_thp, select_user.cqi[i]]
+            self.state[i] = [select_user.avg_snr]
         return minmax_scale(self.state, axis=0).reshape(-1)
 
     def get_original_state(self):
@@ -221,7 +230,16 @@ class Airview(gym.Env):
             if user in counted_user_list:
                 continue
             counted_user_list.add(user)
-            is_succ = 1 if (user.avg_snr + np.random.randint(-2, 2) - mcs_list[i]) > 0 else 0
+            mcs_list[i] += int(user.olla_value) if user.olla_enable else 0
+            if user.cqi_update_time is not None:
+                time_decorrelation = min((1, int((self.sim_time - user.cqi_update_time) / user.coherence_time))) * 2
+            else:
+                time_decorrelation = 2
+            '''random implies mismatch in cqi measurement and mcs selection and different ue type'''
+            rand_factor = 0 if time_decorrelation == 0 else np.random.randint(-time_decorrelation,
+                                                                              time_decorrelation)
+            is_succ = 1 if (user.avg_snr + rand_factor - mcs_list[i]) > 0 else 0
+            user.olla_value += user.olla_step if (is_succ == 1) else -9.0 * user.olla_step
             rbg_se = np.log2(1 + mcs_list[i] ** 2)
             rbg_tbs = int(BANDWIDTH * 0.9 * user.sched_rbg.sum() / RBG_NUM * rbg_se * TTI)
 
@@ -284,13 +302,19 @@ class Airview(gym.Env):
 
     def get_action(self):
         # reward by Huawei Policy, compare with the policy network we trained
-        mcs_list = [np.floor(np.sum(ue.mcs * ue.sched_rbg) / ue.sched_rbg.sum()) for ue in
-                    self.select_user_list]
-        for i in range(len(mcs_list)):
-            mcs_list[i] -= 1.5
-        action = np.zeros((RBG_NUM, MAX_MCS - MIN_MCS + 1))
-        for i in range(len(mcs_list)):
-            action[i][int(mcs_list[i] - 1)] = 1
-        action = action.reshape(RBG_NUM * (MAX_MCS - MIN_MCS + 1))
+        # mcs_list = [np.floor(np.sum(ue.mcs * ue.sched_rbg) / ue.sched_rbg.sum()) for ue in
+        #             self.select_user_list]
+        # for i in range(len(mcs_list)):
+        #     mcs_list[i] -= 3
+        # action = np.zeros((RBG_NUM, MAX_MCS - MIN_MCS + 1))
+        # for i in range(len(mcs_list)):
+        #     action[i][int(mcs_list[i] - 1)] = 1
+        # action = action.reshape(RBG_NUM * (MAX_MCS - MIN_MCS + 1))
 
+        snr_list = np.array([ue.avg_snr for ue in self.select_user_list])
+        snr_list = np.clip(snr_list - 3, 1, 29)
+        action = np.zeros((RBG_NUM, MAX_MCS - MIN_MCS + 1))
+        for i in range(len(snr_list)):
+            action[i][int(snr_list[i] - 1)] = 1
+        action = action.reshape(RBG_NUM * (MAX_MCS - MIN_MCS + 1))
         return action
