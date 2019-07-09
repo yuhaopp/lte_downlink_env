@@ -1,3 +1,3 @@
 import numpy as np
 
-print(np.random.randint(0, 0))
+print(np.random.uniform(1, 31))

@@ -111,13 +111,14 @@ class Airview(gym.Env):
         # user_list which is scheduled in RBG
         self.select_user_list = []
 
-        self.state_dim = RBG_NUM * len(self.user_var['num'] + self.user_var['vec'] * RBG_NUM)
-        self.state = np.zeros((RBG_NUM, len(self.user_var['num'] + self.user_var['vec'] * RBG_NUM)))
+        self.state_dim = len(self.user_var['num'] + self.user_var['vec'] * RBG_NUM)
+        self.state_list = []
 
-        self.action_dim = RBG_NUM * (MAX_MCS - MIN_MCS + 1)
+        self.action_dim = MAX_MCS - MIN_MCS + 1
+        self.action_list = []
 
-        self.observation_space = Box(low=-10000.0, high=10000.0, shape=(self.state_dim,), dtype=np.float32)
-        self.action_space = Box(low=0, high=1, shape=(self.action_dim,), dtype=np.float32)
+        self.observation_space = Box(low=-10000.0, high=10000.0, shape=(self.state_dim,))
+        self.action_space = Box(low=0, high=1, shape=(self.action_dim,))
 
     def reset(self):
         self.__init__(self.ue_arrival_rate, self.episode_tti)
@@ -139,13 +140,6 @@ class Airview(gym.Env):
                 self.user_list[i] = user
                 break
 
-    # define state from the perspective of user
-    # def get_state(self):
-    #     for i in range(len(self.user_list)):
-    #         user = self.user_list[i]
-    #         self.state[i] = [user.buffer, user.rsrp, user.avg_thp] + user.cqi + user.prior + user.sched_rbg
-    #     return self.state.reshape(-1)
-
     def calc_prior(self):
         for i in range(len(self.user_list)):
             user = self.user_list[i]
@@ -165,7 +159,7 @@ class Airview(gym.Env):
             self.user_list[i] = user
 
     def select_user(self):
-        self.select_user_list = []
+        self.select_user_list = set()
         # first we need to reset the schedule of user
         for i in range(len(self.user_list)):
             user = self.user_list[i]
@@ -183,19 +177,16 @@ class Airview(gym.Env):
                     select_user = user
             select_user.sched_rbg[rbg] = 1
             self.update_user(select_user)
-            self.select_user_list.append(select_user)
+            self.select_user_list.add(select_user)
+        self.select_user_list = list(self.select_user_list)
 
     def get_state(self):
+        self.state_list = []
         for i in range(len(self.select_user_list)):
             select_user = self.select_user_list[i]
-            self.state[i] = [select_user.avg_snr]
-        return minmax_scale(self.state, axis=0).reshape(-1)
-
-    def get_original_state(self):
-        for i in range(len(self.select_user_list)):
-            select_user = self.select_user_list[i]
-            self.state[i] = [select_user.rsrp, select_user.buffer, select_user.avg_thp, select_user.cqi[i]]
-        return self.state
+            state = np.array([select_user.avg_snr])
+            self.state_list.append(state)
+        return self.state_list
 
     def add_new_user(self):
         if np.random.uniform(0., 1.) < self.ue_arrival_rate:
@@ -215,7 +206,7 @@ class Airview(gym.Env):
     def fill_in_vir_users(self):
         fill_count = max(0, RBG_NUM - len(self.user_list))
         for i in range(fill_count):
-            self.user_list.append(User(-1, self.sim_time, 1, -122, True))
+            self.user_list.append(User(-1.0, self.sim_time, 1.0, -122.0, True))
             self.all_buffer += 1
 
     def del_empty_user(self):
@@ -223,13 +214,10 @@ class Airview(gym.Env):
 
     def take_action(self, mcs_list):
         reward = 0
-        counted_user_list = set()
+        reward_list = []
 
         for i in range(len(self.select_user_list)):
             user = self.select_user_list[i]
-            if user in counted_user_list:
-                continue
-            counted_user_list.add(user)
             mcs_list[i] += int(user.olla_value) if user.olla_enable else 0
             if user.cqi_update_time is not None:
                 time_decorrelation = min((1, int((self.sim_time - user.cqi_update_time) / user.coherence_time))) * 2
@@ -252,8 +240,10 @@ class Airview(gym.Env):
             user.tbs_list.append(rbg_tbs)
             user.avg_thp = np.average(user.tbs_list)
             self.update_user(user)
-            reward += is_succ * rbg_tbs
-        return reward
+            single_agent_reward = is_succ * rbg_tbs
+            reward += single_agent_reward
+            reward_list.append(single_agent_reward / user.sched_rbg.sum())
+        return reward, reward_list
 
     def get_current_users(self):
         all_users = 0
@@ -265,7 +255,13 @@ class Airview(gym.Env):
             selected_users.add(user)
         return all_users, len(selected_users)
 
-    def step(self, action):
+    def step(self, action_list):
+        # take action
+        reward, reward_list = self.take_action(action_list)
+        updated_state_list = self.get_state()
+        for i in range(len(updated_state_list)):
+            updated_state_list[i] = [np.random.uniform(1, 31)]
+
         self.sim_time += TTI
 
         # del user with empty buffer
@@ -283,14 +279,9 @@ class Airview(gym.Env):
         # select users for each RBG
         self.select_user()
 
-        # take action
-        action = action.reshape((RBG_NUM, MAX_MCS - MIN_MCS + 1))
-        mcs_list = np.argmax(action, axis=-1) + 1
-        reward = self.take_action(mcs_list)
-
         done = int(self.sim_time) == int(self.episode_tti)
 
-        next_state = self.get_state()
+        next_state_list = self.get_state()
 
         # check current number true/selected users
         num_all_users, num_selected_users = self.get_current_users()
@@ -298,7 +289,7 @@ class Airview(gym.Env):
         # get original state (without scale)
         # original_state = self.get_original_state()
 
-        return next_state, reward, done, self.all_buffer, num_all_users, num_selected_users
+        return updated_state_list, next_state_list, reward_list, done, self.all_buffer, num_all_users, num_selected_users, reward
 
     def get_action(self):
         # reward by Huawei Policy, compare with the policy network we trained
@@ -313,8 +304,4 @@ class Airview(gym.Env):
 
         snr_list = np.array([ue.avg_snr for ue in self.select_user_list])
         snr_list = np.clip(snr_list - 3, 1, 29)
-        action = np.zeros((RBG_NUM, MAX_MCS - MIN_MCS + 1))
-        for i in range(len(snr_list)):
-            action[i][int(snr_list[i] - 1)] = 1
-        action = action.reshape(RBG_NUM * (MAX_MCS - MIN_MCS + 1))
-        return action
+        return snr_list

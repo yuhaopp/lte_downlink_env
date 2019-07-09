@@ -24,47 +24,39 @@ def run(policy_net, policy_name, ue_arrival_rate=0.03, episode_tti=200.0):
     num_selected_users_list = []
 
     while frame_idx < max_frames:
-        state = env.reset()
-        episode_reward = 0.0
-        done = False
-        record_flag = False
-        record_number = 10
+        while frame_idx < max_frames:
+            state_list = env.reset()
+            episode_reward = 0
+            done = False
 
-        while not done:
-            action = policy_net.get_action(state)
-            next_state, reward, done, all_buffer, num_all_users, num_selected_users = env.step(action)
+            while not done:
+                frame_idx += 1
+                action_list = []
+                for state in state_list:
+                    action_list.append(policy_net.get_action(state))
+                mcs_list = [np.argmax(action) + 1 for action in action_list]
+                updated_state_list, next_state_list, reward_list, done, all_buffer, num_all_users, num_selected_users, one_step_reward = env.step(
+                    mcs_list)
 
-            state = next_state
-            episode_reward += reward
-            frame_idx += 1
-            if frame_idx % 1000 == 0:
-                print(frame_idx)
-            average_reward_list.append(episode_reward / frame_idx)
-            transmit_rate_list.append(episode_reward / all_buffer)
-            num_all_users_list.append(num_all_users)
-            num_selected_users_list.append(num_selected_users)
-            if frame_idx % 200000 == 0:
-                time = str(datetime.datetime.now())
-                plot_reward('test_{}_policy_reward_{}'.format(policy_name, time), average_reward_list, frame_idx)
-                log = open("test_{}_policy_result_{}_{}.txt".format(policy_name, frame_idx,time), "w")
-                log.write(str(average_reward_list))
-                log.write('\n')
-                log.write(str(transmit_rate_list))
-                log.write('\n')
-                log.write(str(num_all_users_list))
-                log.write('\n')
-                log.write(str(num_selected_users_list))
-                log.close()
-            if num_selected_users == 3:
-                record_flag = True
-            if record_flag and record_number > 0:
-                record_number -= 1
-                print("Frame ID: {}".format(str(frame_idx)))
-                print("Current users: {}".format(str(num_selected_users)))
-
-                action = action.reshape((RBG_NUM, MAX_MCS - MIN_MCS + 1))
-                mcs_list = np.argmax(action, axis=-1) + 1
-                print("MCS: {}".format(str(mcs_list)))
-
-                print("Reward: {}".format(str(reward)))
+                state_list = next_state_list
+                episode_reward += one_step_reward
+                average_reward_list.append(episode_reward / frame_idx)
+                transmit_rate_list.append(episode_reward / all_buffer)
+                num_all_users_list.append(num_all_users)
+                num_selected_users_list.append(num_selected_users)
+                if frame_idx % 1000 == 0:
+                    print(frame_idx)
+                    print('current users: {}'.format(num_all_users_list[frame_idx - 1]))
+                if frame_idx % 200000 == 0:
+                    time = str(datetime.datetime.now())
+                    plot_reward('test_ddpg_policy_reward_{}'.format(time), average_reward_list, frame_idx)
+                    log = open("test_ddpg_policy_result_{}_{}.txt".format(frame_idx, time), "w")
+                    log.write(str(average_reward_list))
+                    log.write('\n')
+                    log.write(str(transmit_rate_list))
+                    log.write('\n')
+                    log.write(str(num_all_users_list))
+                    log.write('\n')
+                    log.write(str(num_selected_users_list))
+                    log.close()
     return average_reward_list

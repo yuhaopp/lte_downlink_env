@@ -130,7 +130,7 @@ class DDPG:
 
         self.state_dim = self.env.observation_space.shape[0]
         self.action_dim = self.env.action_space.shape[0]
-        self.hidden_dim = 512
+        self.hidden_dim = 64
 
         self.value_net = ValueNetwork(self.state_dim, self.action_dim, self.hidden_dim).to(device)
         self.policy_net = PolicyNetwork(self.state_dim, self.action_dim, self.hidden_dim).to(device)
@@ -157,7 +157,7 @@ class DDPG:
 
         self.max_frames = int(episode_tti * 1000)
         self.frame_idx = 0
-        self.batch_size = 512
+        self.batch_size = 64
         self.average_reward_list = []
         self.transmit_rate_list = []
         self.num_all_users_list = []
@@ -165,7 +165,7 @@ class DDPG:
 
     def ddpg_update(self,
                     batch_size,
-                    gamma=0.99,
+                    gamma=0.01,
                     min_value=-np.inf,
                     max_value=np.inf,
                     soft_tau=1e-2):
@@ -208,32 +208,36 @@ class DDPG:
 
     def run(self):
         while self.frame_idx < self.max_frames:
-            state = self.env.reset()
+            state_list = self.env.reset()
             episode_reward = 0
-            step = 0
             done = False
 
             while not done:
-                step += 1
                 self.frame_idx += 1
-                action = self.policy_net.get_action(state)
-                next_state, reward, done, all_buffer, num_all_users, num_selected_users = self.env.step(action)
+                action_list = []
+                for state in state_list:
+                    action_list.append(self.policy_net.get_action(state))
+                mcs_list = [np.argmax(action) + 1 for action in action_list]
+                updated_state_list, next_state_list, reward_list, done, all_buffer, num_all_users, num_selected_users, one_step_reward = self.env.step(
+                    mcs_list)
 
-                self.replay_buffer.push(state, action, reward, next_state, done)
+                for i in range(len(state_list)):
+                    self.replay_buffer.push(state_list[i], action_list[i], reward_list[i], updated_state_list[i], done)
                 if len(self.replay_buffer) > self.batch_size:
                     self.ddpg_update(self.batch_size)
 
-                state = next_state
-                episode_reward += reward
-                if self.frame_idx % 1000 == 0:
-                    print(self.frame_idx)
+                state_list = next_state_list
+                episode_reward += one_step_reward
                 self.average_reward_list.append(episode_reward / self.frame_idx)
                 self.transmit_rate_list.append(episode_reward / all_buffer)
                 self.num_all_users_list.append(num_all_users)
                 self.num_selected_users_list.append(num_selected_users)
+                if self.frame_idx % 1000 == 0:
+                    print(self.frame_idx)
+                    print('current reward: {}'.format(episode_reward / self.frame_idx))
+
                 if self.frame_idx % 200000 == 0:
                     time = str(datetime.datetime.now())
-                    print('current users: {}'.format(self.num_all_users_list[self.frame_idx - 1]))
                     plot_reward('ddpg_policy_reward_{}'.format(time), self.average_reward_list, self.frame_idx)
                     log = open("train_ddpg_policy_result_{}_{}.txt".format(self.frame_idx, time), "w")
                     log.write(str(self.average_reward_list))
