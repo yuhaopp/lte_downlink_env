@@ -33,7 +33,7 @@ def run(policy_net, policy_name, ue_arrival_rate=0.03, episode_tti=200.0):
                 frame_idx += 1
                 action_list = []
                 for state in state_list:
-                    action_list.append(policy_net.get_action(state))
+                    action_list.append(policy_net.get_action_without_noise(state))
                 mcs_list = [np.argmax(action) + 1 for action in action_list]
                 updated_state_list, next_state_list, reward_list, done, all_buffer, num_all_users, num_selected_users, one_step_reward = env.step(
                     mcs_list)

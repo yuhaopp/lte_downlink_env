@@ -1,3 +1,3 @@
 import numpy as np
 
-print(np.random.uniform(1, 31))
+print(np.random.randn(100))

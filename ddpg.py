@@ -122,6 +122,11 @@ class PolicyNetwork(nn.Module):
         action = self.add_noise(action)
         return action
 
+    def get_action_without_noise(self, state):
+        state = torch.FloatTensor(state).unsqueeze(0).to(device)
+        action = self.forward(state).detach().cpu().numpy()[0]
+        return action
+
 
 class DDPG:
     def __init__(self, ue_arrival_rate=0.03, episode_tti=200.0):
