@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 
-import gym
 import numpy as np
 import copy
 from sklearn.preprocessing import minmax_scale
-from gym.spaces import Box
 
 """
 Configuration:
@@ -15,9 +13,7 @@ TTI = 0.001
 UE_ARRIVAL_RATE = 0.03
 PACKET_SIZE = (int(1e3), int(1e6))
 CQI_REPORT_INTERVAL = 0.02
-PRIOR_THRESHOLD = 1e4
-MIN_CQI = 1
-MAX_CQI = 29
+THROUGHPUT_BASELINE = 10000.0
 MIN_MCS = 1
 MAX_MCS = 29
 EPISODE_TTI = 10.0
@@ -52,10 +48,9 @@ class User:
         self.cqi = np.full(RBG_NUM, np.nan)
         self.mcs = np.full(RBG_NUM, np.nan)
         self.se = np.full(RBG_NUM, np.nan)
-        self.prior = np.full(RBG_NUM, np.nan)
         self.sched_rbg = np.zeros(RBG_NUM)
-        self.tbs_list = []
         self.is_virtual = is_virtual
+        self.sum_reward = 0
         self.olla_enable = False
         self.olla_value = 0.0
         self.olla_step = 0.01
@@ -86,13 +81,18 @@ se: the user's se in this RBG
 prior: the user's prior in this RBG
 """
 
+"""
+user_list: all active users
+select_user_list: all scheduled users
+count_user: number of all arrived users
+rb_state_dim: dimension of RB policy state
+rb_action_dim: dimension of RB policy action
+mcs_state_dim: dimension of MCS policy state
+mcs_action_dim: dimension of MCS policy action
+"""
 
-class Airview(gym.Env):
-    user_var = {
-        'num': ['avg_snr'],
-        'vec': []
-    }
 
+class Airview():
     def __init__(self, ue_arrival_rate=UE_ARRIVAL_RATE, episode_tti=EPISODE_TTI):
         self.ue_arrival_rate = ue_arrival_rate
         self.cqi_report_interval = CQI_REPORT_INTERVAL
@@ -101,92 +101,33 @@ class Airview(gym.Env):
         self.packet_list = np.random.uniform(1e3, 1e6, int(self.episode_tti * 1000))
         self.rsrp_list = np.random.uniform(-120, -90, int(self.episode_tti * 1000))
 
-        self.user_list = []
-        self.count_user = 0
         self.sim_time = 0.0
-
-        # Here we calculate the sum of buffer of all true users
         self.all_buffer = 0
 
-        # user_list which is scheduled in RBG
+        self.user_list = []
         self.select_user_list = []
+        self.count_user = 0
 
-        self.state_dim = len(self.user_var['num'] + self.user_var['vec'] * RBG_NUM)
-        self.state_list = []
+        self.rb_state_dim = RBG_NUM * 4
+        self.rb_action_dim = RBG_NUM
+        self.rb_state_list = []
 
-        self.action_dim = MAX_MCS - MIN_MCS + 1
-        self.action_list = []
-
-        self.observation_space = Box(low=-10000.0, high=10000.0, shape=(self.state_dim,))
-        self.action_space = Box(low=0, high=1, shape=(self.action_dim,))
+        self.mcs_state_dim = 1
+        self.mcs_action_dim = MAX_MCS - MIN_MCS + 1
+        self.mcs_state_list = []
 
     def reset(self):
         self.__init__(self.ue_arrival_rate, self.episode_tti)
         self.fill_in_vir_users()
         self.add_new_user()
-        self.calc_prior()
-        self.select_user()
-        return self.get_state()
+        self.update_cqi()
+        return self.get_rb_state()
 
-    def get_user_by_id(self, uid):
-        for user in self.user_list:
-            if user.ID == uid:
-                return user
-
-    def update_user(self, user):
-        uid = user.ID
-        for i in range(len(self.user_list)):
-            if self.user_list[i].ID == uid:
-                self.user_list[i] = user
-                break
-
-    def calc_prior(self):
-        for i in range(len(self.user_list)):
-            user = self.user_list[i]
-            live_time = self.sim_time - user.arr_time
-            if live_time % self.cqi_report_interval == 0.0:
-                '''random implies error in channel measurement'''
-                user.cqi = user.avg_snr + np.random.randint(-2, 2, size=RBG_NUM)
-                user.cqi = np.clip(user.cqi, *user.attr_range['cqi'])
-                user.cqi_update_time = self.sim_time
-                # if user is virtual, then cqi is set to 0.
-                if user.is_virtual:
-                    user.cqi = np.zeros(RBG_NUM)
-
-            user.mcs = copy.deepcopy(user.cqi)
-            user.se = np.log2(1 + user.mcs ** 2.0)
-            user.prior = user.se / max(1, user.avg_thp / PRIOR_THRESHOLD)
-            self.user_list[i] = user
-
-    def select_user(self):
-        self.select_user_list = set()
-        # first we need to reset the schedule of user
-        for i in range(len(self.user_list)):
-            user = self.user_list[i]
-            user.sched_rbg = np.zeros(RBG_NUM)
-            self.update_user(user)
-
-        # then schedule the user
-        for rbg in range(RBG_NUM):
-            max_prior = -1
-            select_user = None
-            for i in range(len(self.user_list)):
-                user = self.user_list[i]
-                if user.prior[rbg] > max_prior:
-                    max_prior = user.prior[rbg]
-                    select_user = user
-            select_user.sched_rbg[rbg] = 1
-            self.update_user(select_user)
-            self.select_user_list.add(select_user)
-        self.select_user_list = list(self.select_user_list)
-
-    def get_state(self):
-        self.state_list = []
-        for i in range(len(self.select_user_list)):
-            select_user = self.select_user_list[i]
-            state = np.array([select_user.avg_snr])
-            self.state_list.append(state)
-        return self.state_list
+    def fill_in_vir_users(self):
+        fill_count = max(0, RBG_NUM - len(self.user_list))
+        for i in range(fill_count):
+            self.user_list.append(User(-1.0, self.sim_time, 1.0, -120.0, True))
+            self.all_buffer += 1
 
     def add_new_user(self):
         if np.random.uniform(0., 1.) < self.ue_arrival_rate:
@@ -203,64 +144,139 @@ class Airview(gym.Env):
                     self.user_list[i] = user
                     break
 
-    def fill_in_vir_users(self):
-        fill_count = max(0, RBG_NUM - len(self.user_list))
-        for i in range(fill_count):
-            self.user_list.append(User(-1.0, self.sim_time, 1.0, -122.0, True))
-            self.all_buffer += 1
+    def update_cqi(self):
+        for i in range(len(self.user_list)):
+            user = self.user_list[i]
+            live_time = self.sim_time - user.arr_time
+            if live_time % self.cqi_report_interval == 0.0:
+                '''random implies error in channel measurement'''
+                user.cqi = user.avg_snr + np.random.randint(-2, 2, size=RBG_NUM)
+                user.cqi = np.clip(user.cqi, *user.attr_range['cqi'])
+                user.cqi_update_time = self.sim_time
+                # if user is virtual, then cqi is set to 0.
+                if user.is_virtual:
+                    user.cqi = np.zeros(RBG_NUM)
 
-    def del_empty_user(self):
-        self.user_list = list(filter(lambda x: x.buffer > 0, self.user_list))
+            user.mcs = copy.deepcopy(user.cqi)
+            user.se = np.log2(1 + user.mcs ** 2.0)
+            self.user_list[i] = user
 
-    def take_action(self, mcs_list):
-        reward = 0
-        reward_list = []
+    '''get state list for RB policy'''
 
+    def get_rb_state(self):
+        self.rb_state_list = []
+        for i in range(RBG_NUM):
+            rb_i_state = []
+            for j in range(RBG_NUM):
+                user = self.user_list[j]
+                scaled_avg_snr = (user.avg_snr - 1.0) / (31.0 - 1.0)
+                scaled_cqi = (user.cqi[i] - 1.0) / (29.0 - 1.0)
+                scaled_buffer = (user.buffer - 1e3) / (1e6 - 1e3)
+                scaled_avg_thp = (user.avg_thp - 1e4) / 1e4
+
+                rb_i_state.extend([scaled_avg_snr, scaled_cqi, scaled_buffer, scaled_avg_thp])
+            self.rb_state_list.append(rb_i_state)
+        return self.rb_state_list
+
+    '''receive action list for RB policy and take action'''
+
+    def take_rb_action(self, rb_action_list):
+        sched_user_set = set()
+        for i in range(len(rb_action_list)):
+            index = rb_action_list[i]
+            self.user_list[index].sched_rbg[i] = 1
+            sched_user_set.add(self.user_list[index])
+        self.select_user_list = list(sched_user_set)
+
+    '''get state list for MCS policy'''
+
+    def get_mcs_state(self):
+        self.mcs_state_list = []
+        for i in range(len(self.select_user_list)):
+            select_user = self.select_user_list[i]
+            state = np.array([select_user.avg_snr])
+            self.mcs_state_list.append(state)
+        return self.mcs_state_list
+
+    '''receive action list for MCS policy and take action'''
+
+    def take_mcs_action(self, mcs_action_list):
+        system_reward = 0
+        mcs_reward_list = []
+        rb_reward = 0
         for i in range(len(self.select_user_list)):
             user = self.select_user_list[i]
-            mcs_list[i] += int(user.olla_value) if user.olla_enable else 0
+            mcs_action_list[i] += int(user.olla_value) if user.olla_enable else 0
             if user.cqi_update_time is not None:
                 time_decorrelation = min((1, int((self.sim_time - user.cqi_update_time) / user.coherence_time))) * 2
             else:
                 time_decorrelation = 2
-            '''random implies mismatch in cqi measurement and mcs selection and different ue type'''
+
             rand_factor = 0 if time_decorrelation == 0 else np.random.randint(-time_decorrelation,
                                                                               time_decorrelation)
-            is_succ = 1 if (user.avg_snr + rand_factor - mcs_list[i]) > 0 else 0
+
+            is_succ = 1 if (user.avg_snr + rand_factor - mcs_action_list[i]) > 0 else 0
             user.olla_value += user.olla_step if (is_succ == 1) else -9.0 * user.olla_step
-            rbg_se = np.log2(1 + mcs_list[i] ** 2)
+            rbg_se = np.log2(1 + mcs_action_list[i] ** 2)
             rbg_tbs = int(BANDWIDTH * 0.9 * user.sched_rbg.sum() / RBG_NUM * rbg_se * TTI)
 
-            # if current buffer less than tbs: buffer set to 0, rbg_tbs set to buffer
             if rbg_tbs > user.buffer:
                 rbg_tbs = user.buffer
                 user.buffer = 0
             else:
                 user.buffer -= rbg_tbs
-            user.tbs_list.append(rbg_tbs)
-            user.avg_thp = np.average(user.tbs_list)
-            self.update_user(user)
-            single_agent_reward = is_succ * rbg_tbs
-            reward += single_agent_reward
-            reward_list.append(single_agent_reward / user.sched_rbg.sum())
-        return reward, reward_list
 
-    def get_current_users(self):
-        all_users = 0
+            reward = rbg_tbs * is_succ
+            user.sum_reward += reward
+            user.avg_thp = user.sum_reward / ((self.sim_time - user.arr_time) * 1000 + 1)
+            self.select_user_list[i] = user
+
+            system_reward += reward
+            mcs_reward_list.append(reward / user.sched_rbg.sum())
+            rb_reward = self.get_rb_reward()
+        return system_reward, mcs_reward_list, rb_reward
+
+    '''get rewards for RB policy and MCS policy'''
+
+    def get_rb_reward(self):
+        reward = 0.0
+        num_active_user = self.get_num_active_users()
+
+        if num_active_user != 0:
+            for i in range(num_active_user):
+                avg_thp = self.user_list[i].avg_thp
+                if avg_thp > THROUGHPUT_BASELINE:
+                    single_reward = 1
+                else:
+                    single_reward = -1
+                reward += single_reward
+            reward = reward / float(num_active_user)
+        return reward
+
+    def del_empty_user(self):
+        self.user_list = list(filter(lambda x: x.buffer > 0, self.user_list))
+
+    '''get the number of active users and scheduled users'''
+
+    def get_num_active_users(self):
+        num = 0
         for user in self.user_list:
             if user.ID != -1:
-                all_users += 1
-        selected_users = set()
-        for user in self.select_user_list:
-            selected_users.add(user)
-        return all_users, len(selected_users)
+                num += 1
+        return num
 
-    def step(self, action_list):
-        # take action
-        reward, reward_list = self.take_action(action_list)
-        updated_state_list = self.get_state()
-        for i in range(len(updated_state_list)):
-            updated_state_list[i] = [np.random.uniform(1, 31)]
+    '''after take rb action, the algorithm run step'''
+
+    def step(self, mcs_action_list):
+        system_reward, mcs_reward_list, rb_reward = self.take_mcs_action(mcs_action_list)
+
+        updated_mcs_state_list = []
+        for i in range(len(self.select_user_list)):
+            updated_mcs_state_list.append([np.random.uniform(1, 31)])
+
+        # check current number of active/selected users
+        num_active_users = self.get_num_active_users()
+        num_selected_users = len(self.select_user_list)
 
         self.sim_time += TTI
 
@@ -273,23 +289,16 @@ class Airview(gym.Env):
         # create virtual users to fill in user_list, this will be executed only when len(user_list)<RBG_NUM
         self.fill_in_vir_users()
 
-        # calculate priority
-        self.calc_prior()
-
-        # select users for each RBG
-        self.select_user()
+        # update cqi
+        self.update_cqi()
 
         done = int(self.sim_time) == int(self.episode_tti)
 
-        next_state_list = self.get_state()
+        # get new state
+        next_rb_state_list = self.get_rb_state()
+        next_mcs_state_list = self.get_mcs_state()
 
-        # check current number true/selected users
-        num_all_users, num_selected_users = self.get_current_users()
-
-        # get original state (without scale)
-        # original_state = self.get_original_state()
-
-        return updated_state_list, next_state_list, reward_list, done, self.all_buffer, num_all_users, num_selected_users, reward
+        return next_rb_state_list, rb_reward, updated_mcs_state_list, next_mcs_state_list, mcs_reward_list, system_reward, done, self.all_buffer, num_active_users, num_selected_users
 
     def get_action(self):
         # reward by Huawei Policy, compare with the policy network we trained
