@@ -86,7 +86,7 @@ def train(ue_arrival_rate=0.03, episode_tti=200.0):
 
     torch.save(rb_ddpg.policy_net, 'RB_ddpg_policy_net.pth')
     torch.save(mcs_ddpg.policy_net, 'MCS_ddpg_policy_net.pth')
-    return average_reward_list, qos_list
+    return average_reward_list, qos_list, env.system_log
 
 
 def test(rb_policy_net, mcs_policy_net, ue_arrival_rate=0.03, episode_tti=200.0):
@@ -138,4 +138,4 @@ def test(rb_policy_net, mcs_policy_net, ue_arrival_rate=0.03, episode_tti=200.0)
             # print('current selected users: {}'.format(num_selected_users))
             # print('RB index list: {}'.format(str(rb_index_list)))
 
-    return average_reward_list, qos_list
+    return average_reward_list, qos_list, env.system_log

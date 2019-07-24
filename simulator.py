@@ -116,6 +116,8 @@ class Airview():
         self.mcs_action_dim = MAX_MCS - MIN_MCS + 1
         self.mcs_state_list = []
 
+        self.system_log = []
+
     def reset(self):
         self.__init__(self.ue_arrival_rate, self.episode_tti)
         self.fill_in_vir_users()
@@ -231,6 +233,9 @@ class Airview():
             user.avg_thp = user.sum_reward / ((self.sim_time - user.arr_time) * 1000 + 1)
             self.select_user_list[i] = user
 
+            if user.buffer == 0 and user.sum_reward > 1:
+                self.system_log.append([user.arr_time, self.sim_time, user.sum_reward, user.avg_thp])
+
             system_reward += reward
             mcs_reward_list.append(reward / user.sched_rbg.sum())
             rb_reward = self.get_rb_reward()
@@ -246,9 +251,9 @@ class Airview():
             for i in range(num_active_user):
                 avg_thp = self.user_list[i].avg_thp
                 if avg_thp > THROUGHPUT_BASELINE:
-                    single_reward = 1
+                    single_reward = float(avg_thp / THROUGHPUT_BASELINE)
                 else:
-                    single_reward = -1
+                    single_reward = 0
                 reward += single_reward
             reward = reward / float(num_active_user)
         return reward
@@ -299,6 +304,9 @@ class Airview():
         next_mcs_state_list = self.get_mcs_state()
 
         return next_rb_state_list, rb_reward, updated_mcs_state_list, next_mcs_state_list, mcs_reward_list, system_reward, done, self.all_buffer, num_active_users, num_selected_users
+
+    def get_system_log(self):
+        return self.system_log
 
     def get_action(self):
         # reward by Huawei Policy, compare with the policy network we trained
