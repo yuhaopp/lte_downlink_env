@@ -205,7 +205,6 @@ class Airview():
     def take_mcs_action(self, mcs_action_list):
         system_reward = 0
         mcs_reward_list = []
-        rb_reward = 0
         for i in range(len(self.select_user_list)):
             user = self.select_user_list[i]
             mcs_action_list[i] += int(user.olla_value) if user.olla_enable else 0
@@ -238,7 +237,7 @@ class Airview():
 
             system_reward += reward
             mcs_reward_list.append(reward / user.sched_rbg.sum())
-            rb_reward = self.get_rb_reward()
+        rb_reward = self.get_rb_reward()
         return system_reward, mcs_reward_list, rb_reward
 
     '''get rewards for RB policy and MCS policy'''
@@ -253,7 +252,7 @@ class Airview():
                 if avg_thp > THROUGHPUT_BASELINE:
                     single_reward = float(avg_thp / THROUGHPUT_BASELINE)
                 else:
-                    single_reward = 0
+                    single_reward = 0.0
                 reward += single_reward
             reward = reward / float(num_active_user)
         return reward
