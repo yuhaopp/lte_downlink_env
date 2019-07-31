@@ -249,10 +249,7 @@ class Airview():
         if num_active_user != 0:
             for i in range(num_active_user):
                 avg_thp = self.user_list[i].avg_thp
-                if avg_thp > THROUGHPUT_BASELINE:
-                    single_reward = float(avg_thp / THROUGHPUT_BASELINE)
-                else:
-                    single_reward = 0.0
+                single_reward = float(avg_thp - THROUGHPUT_BASELINE) / THROUGHPUT_BASELINE
                 reward += single_reward
             reward = reward / float(num_active_user)
         return reward

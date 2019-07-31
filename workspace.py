@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-a = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
-b = pd.DataFrame(a)
+a = np.array([1, 2, 3, 5])
+c = [1, 2, 4, 6]
+b = 0
 
-b.to_csv('b.csv', index=False)
+print(a == b)
