@@ -19,9 +19,10 @@ def plot_reward(name, reward_list, frame_idx):
 
 def train(ue_arrival_rate=0.03, episode_tti=200.0, episode_number=1):
     env = Airview(ue_arrival_rate, episode_tti)
-    rb_hidden_dim = 128
+    rb_hidden_dim = 2048
+    rb_batch_size = 1024
     mcs_hidden_dim = 64
-    batch_size = 64
+    mcs_batch_size = 64
 
     rb_ddpg = DDPG(env, env.rb_state_dim, env.rb_action_dim, rb_hidden_dim)
     mcs_ddpg = DDPG(env, env.mcs_state_dim, env.mcs_action_dim, mcs_hidden_dim)
@@ -40,15 +41,10 @@ def train(ue_arrival_rate=0.03, episode_tti=200.0, episode_number=1):
 
         while not done:
             frame_idx += 1
-            rb_action_list = []
-            rb_index_list = []
             '''select argmax for the scheduled user'''
-            for state in rb_state_list:
-                action = rb_ddpg.policy_net.get_action(state)
-                index = np.argmax(action)
-                rb_index_list.append(index)
-                rb_action_list.append(action)
-            env.take_rb_action(rb_index_list)
+            rb_action = rb_ddpg.policy_net.get_action(rb_state_list)
+
+            env.take_rb_action(rb_action)
             mcs_state_list = env.get_mcs_state()
             mcs_action_list = []
             mcs_index_list = []
@@ -60,18 +56,17 @@ def train(ue_arrival_rate=0.03, episode_tti=200.0, episode_number=1):
             next_rb_state_list, rb_reward, updated_mcs_state_list, next_mcs_state_list, mcs_reward_list, system_reward, done, all_buffer, num_all_users, num_selected_users = env.step(
                 mcs_index_list)
 
-            for i in range(len(rb_state_list)):
-                rb_ddpg.replay_buffer.push(rb_state_list[i], rb_action_list[i], rb_reward, next_rb_state_list[i], done)
+            rb_ddpg.replay_buffer.push(rb_state_list, rb_action, rb_reward, next_rb_state_list, done)
 
             for i in range(len(mcs_state_list)):
                 mcs_ddpg.replay_buffer.push(mcs_state_list[i], mcs_action_list[i], mcs_reward_list[i],
                                             updated_mcs_state_list[i], done)
 
-            if len(rb_ddpg.replay_buffer) > batch_size:
-                rb_ddpg.ddpg_update(batch_size)
+            if len(rb_ddpg.replay_buffer) > rb_batch_size:
+                rb_ddpg.ddpg_update(rb_batch_size)
 
-            if (len(mcs_ddpg.replay_buffer)) > batch_size:
-                mcs_ddpg.ddpg_update(batch_size)
+            if (len(mcs_ddpg.replay_buffer)) > mcs_batch_size:
+                mcs_ddpg.ddpg_update(mcs_batch_size)
 
             rb_state_list = next_rb_state_list
 
@@ -111,15 +106,9 @@ def test(rb_policy_net, mcs_policy_net, ue_arrival_rate=0.03, episode_tti=200.0)
 
     while not done:
         frame_idx += 1
-        rb_action_list = []
-        rb_index_list = []
         '''select argmax for the scheduled user'''
-        for state in rb_state_list:
-            action = rb_policy_net.get_action(state)
-            index = np.argmax(action)
-            rb_index_list.append(index)
-            rb_action_list.append(action)
-        env.take_rb_action(rb_index_list)
+        rb_action = rb_policy_net.get_action(rb_state_list)
+        env.take_rb_action(rb_action)
         mcs_state_list = env.get_mcs_state()
         mcs_action_list = []
         mcs_index_list = []

@@ -108,8 +108,8 @@ class Airview():
         self.select_user_list = []
         self.count_user = 0
 
-        self.rb_state_dim = RBG_NUM * 4
-        self.rb_action_dim = RBG_NUM
+        self.rb_state_dim = RBG_NUM * RBG_NUM * 4
+        self.rb_action_dim = RBG_NUM * RBG_NUM
         self.rb_state_list = []
 
         self.mcs_state_dim = 1
@@ -177,12 +177,14 @@ class Airview():
                 scaled_avg_thp = (user.avg_thp - 1e4) / 1e4
 
                 rb_i_state.extend([scaled_avg_snr, scaled_cqi, scaled_buffer, scaled_avg_thp])
-            self.rb_state_list.append(rb_i_state)
+            self.rb_state_list.extend(rb_i_state)
         return self.rb_state_list
 
     '''receive action list for RB policy and take action'''
 
     def take_rb_action(self, rb_action_list):
+        rb_action_list = np.reshape(rb_action_list, (RBG_NUM, RBG_NUM))
+        rb_action_list = np.argmax(rb_action_list, axis=1)
         sched_user_set = set()
         for i in range(len(rb_action_list)):
             index = rb_action_list[i]
@@ -249,7 +251,7 @@ class Airview():
         if num_active_user != 0:
             for i in range(num_active_user):
                 avg_thp = self.user_list[i].avg_thp
-                single_reward = float(avg_thp - THROUGHPUT_BASELINE) / THROUGHPUT_BASELINE
+                single_reward = 1 if avg_thp > 10000 else 0
                 reward += single_reward
             reward = reward / float(num_active_user)
         return reward
